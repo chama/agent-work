@@ -1,0 +1,1 @@
+- always use uv when python relevant task (e.g uv run hoge.py, uv add [package name]
