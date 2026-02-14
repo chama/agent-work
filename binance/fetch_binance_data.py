@@ -8,7 +8,6 @@ import requests
 import csv
 from datetime import datetime, timedelta
 import time
-import sys
 
 def fetch_binance_klines(symbol, interval, start_time, end_time, limit=1500):
     """
@@ -204,7 +203,7 @@ def main():
             print(f"SUMMARY for {symbol}")
             print("=" * 60)
             print(f"Total candles retrieved: {len(klines)}")
-            print(f"Actual data range:")
+            print("Actual data range:")
             print(f"  First candle: {first_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"  Last candle: {last_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"Output file: {filename}")
