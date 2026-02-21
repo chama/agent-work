@@ -18,8 +18,10 @@ def _ensure_registry() -> None:
     if _REGISTRY:
         return
     from .infra.binance import BinanceFuturesSource
+    from .infra.upbit import UpbitSource
 
     _REGISTRY["binance"] = BinanceFuturesSource
+    _REGISTRY["upbit"] = UpbitSource
 
 
 def create_source(exchange: str, **kwargs) -> FuturesDataSource:
