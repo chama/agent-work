@@ -73,6 +73,17 @@ for domain in \
     "files.pythonhosted.org" \
     "fapi.binance.com" \
     "api.binance.com" \
+    "dapi.binance.com" \
+    "developers.binance.com" \
+    "api.bitget.com" \
+    "www.bitget.com" \
+    "api.bybit.com" \
+    "bybit-exchange.github.io" \
+    "www.okx.com" \
+    "api.phemex.com" \
+    "vapi.phemex.com" \
+    "phemex-docs.github.io" \
+    "note.com" \
     "api.x.com" \
     "api.twitter.com" \
     "marketplace.visualstudio.com" \
