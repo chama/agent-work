@@ -1,7 +1,7 @@
-# Bybit Futures Data Client 実装プロンプト
+# Bybit Futures Data Source 実装プロンプト
 
 あなたは暗号資産データ分析用リポジトリで作業しています。
-既に実装済みの Binance クライアント (src/binance_client/) と全く同じパターンで、Bybit 版を実装してください。
+DDD アーキテクチャで実装済みの `market_data` パッケージに、Bybit 版のデータソースアダプタを追加してください。
 
 ---
 
@@ -10,8 +10,37 @@
 - Python 操作は常に uv を使う (uv run, uv sync)
 - データは data/ 以下に保存
 - ファイル名規則: yyyymmdd_hhmm_[概要].csv
-- パッケージは src/ 以下に配置 (setuptools が自動発見する)
+- パッケージは src/market_data/ 以下に配置
 - テスト: uv run pytest
+
+---
+
+## アーキテクチャ概要
+
+本リポジトリは DDD (Domain-Driven Design) に基づく構成をとっている:
+
+```
+src/market_data/
+  __init__.py                  # 公開API: create_source(), DataType, FuturesDataSource
+  domain/
+    models.py                  # DataType enum + 共通カラムスキーマ定義
+    source.py                  # FuturesDataSource Protocol (取引所共通インターフェース)
+  infra/
+    http_client.py             # 汎用HTTPクライアント (retry/rate limit)
+    binance.py                 # BinanceFuturesSource (実装参考例)
+scripts/
+  export_data.py               # 取引所非依存のエクスポートスクリプト (--exchange フラグ)
+```
+
+### 設計の要点
+
+1. **`FuturesDataSource` Protocol**: 全取引所が実装すべきインターフェース
+   - `exchange` プロパティ: 取引所名 (例: `"bybit"`)
+   - `fetch(data_type, symbol, start_time, end_time, *, interval, period)` → `pd.DataFrame`
+2. **`DataType` enum**: データ種別ごとの正規カラムスキーマ (`DataType.OHLCV.columns` 等)
+3. **`HttpClient`**: 共有のHTTPクライアント (retry, rate limit) — 各取引所アダプタから利用
+4. **Factory**: `create_source("bybit")` で取引所を切り替え
+5. **エクスポート**: `scripts/export_data.py --exchange bybit` で全取引所共通のスクリプトを使用
 
 ---
 
@@ -19,47 +48,101 @@
 
 以下のファイルを読み、パターン・設計思想・テスト手法を完全に把握してから実装に入ること:
 
-1. `src/binance_client/base.py`
-   → BaseClient: リトライ(指数バックオフ), レート制限, to_milliseconds(datetime/str/int対応)
-   → context manager (`__enter__`/`__exit__`)
+1. `src/market_data/domain/models.py`
+   → DataType enum: 各データ型のカラムスキーマ定義 (`columns`, `uses_interval`, `uses_period`)
+   → **全取引所が出力すべき正規カラムの定義元。これに必ず準拠すること**
 
-2. `src/binance_client/futures.py`
-   → `_fetch_klines_raw`: kline形式のページネーション汎用ヘルパー
-   → `_fetch_records_raw`: JSON record形式のページネーション汎用ヘルパー
-   → `_klines_to_df`: 生データ→DataFrame変換 (型変換、カラム名)
-   → 各 `get_*` メソッド: 全て pandas DataFrame を返す
-   → スナップショット系 (ticker, orderbook, premium_index) も実装
+2. `src/market_data/domain/source.py`
+   → FuturesDataSource Protocol: `exchange` プロパティ + `fetch()` メソッド
+   → **実装すべきインターフェースの定義**
 
-3. `scripts/export_binance_data.py`
-   → CLI (argparse): `--symbol`, `--start`, `--end`, `--interval`, `--period`, `--types`, `--output-dir`, `--list-types`
-   → `make_filename()`: yyyymmdd_hhmm_[symbol]_[interval]_[type].csv
-   → `fetch_and_save()`: fetchers dict でデータ種別→取得関数をマッピング
-   → `main(argv)`: テスタブルな設計 (argv引数, int戻り値)
+3. `src/market_data/infra/http_client.py`
+   → HttpClient: リトライ(指数バックオフ), レート制限
+   → `to_milliseconds()`: datetime/str/int → ミリ秒変換
 
-4. `tests/test_binance_client.py`
-   → to_milliseconds の網羅テスト
-   → BaseClient: mock response でリトライ・エラー処理テスト
-   → FuturesClient: mock `_request` でデータ変換・ページネーションテスト
+4. `src/market_data/infra/binance.py`
+   → **実装パターンの参考例**
+   → `BinanceFuturesSource`: Protocol 実装の具体例
+   → `fetch()` → dispatcher dict → 各 `_fetch_*` メソッド
+   → `_paginate_klines` / `_paginate_records`: ページネーションヘルパー
+   → `_klines_to_df` / `_records_to_ls_df`: raw → canonical DataFrame 変換
 
-5. `tests/test_export_binance_data.py`
-   → make_filename: `datetime.now()` を patch
-   → parse_args: 引数パーステスト
-   → fetch_and_save: mock client でCSV保存確認
-   → main: mock BinanceFuturesClient で統合テスト
+5. `src/market_data/__init__.py`
+   → `create_source()` ファクトリ + `_REGISTRY` への登録パターン
 
-6. `pyproject.toml` → 現在の依存関係と build-system 設定を確認
+6. `tests/test_binance_source.py`
+   → テストパターン: mock `_http.get` でデータ変換・ページネーションテスト
+   → `DataType.*.columns` との一致検証
+
+7. `scripts/export_data.py`
+   → 取引所非依存の CLI。`--exchange`, `--symbol`, `--types` 等
+   → **このファイルの変更は不要** (Bybit は自動的に `--exchange bybit` で使える)
+
+8. `pyproject.toml` → 現在の依存関係と build-system 設定を確認
 
 ---
 
-## 作成するファイル (これ以外は変更禁止)
+## 作成・変更するファイル
 
-1. `src/bybit_client/__init__.py` → `BybitFuturesClient` をエクスポート
-2. `src/bybit_client/base.py` → `BybitBaseClient` + `to_milliseconds`
-3. `src/bybit_client/futures.py` → `BybitFuturesClient` (全メソッド)
-4. `scripts/export_bybit_data.py` → CSV出力スクリプト
-5. `tests/test_bybit_client.py` → クライアントテスト
-6. `tests/test_export_bybit_data.py` → エクスポートスクリプトテスト
-7. `data/bybit/.gitkeep` → 出力ディレクトリ
+### 新規作成
+
+1. `src/market_data/infra/bybit.py` → `BybitFuturesSource` クラス (FuturesDataSource 実装)
+2. `tests/test_bybit_source.py` → BybitFuturesSource のテスト
+3. `data/bybit/.gitkeep` → 出力ディレクトリ
+
+### 変更 (最小限)
+
+4. `src/market_data/__init__.py` → `_ensure_registry()` に Bybit を追加:
+   ```python
+   from .infra.bybit import BybitFuturesSource
+   _REGISTRY["bybit"] = BybitFuturesSource
+   ```
+
+---
+
+## 実装パターン (binance.py に倣う)
+
+```python
+# src/market_data/infra/bybit.py
+
+from ..domain.models import DataType
+from .http_client import HttpClient, to_milliseconds
+
+BASE_URL = "https://api.bybit.com"
+
+class BybitFuturesSource:
+    def __init__(self, max_retries=3, rate_limit_sleep=0.1):
+        self._http = HttpClient(max_retries=max_retries, rate_limit_sleep=rate_limit_sleep)
+
+    @property
+    def exchange(self) -> str:
+        return "bybit"
+
+    def close(self): ...
+    def __enter__(self): ...
+    def __exit__(self, *args): ...
+
+    def fetch(self, data_type, symbol, start_time, end_time, *, interval=None, period=None):
+        dispatcher = {
+            DataType.OHLCV: self._fetch_ohlcv,
+            DataType.INDEX_PRICE: self._fetch_index_price,
+            # ... 各 DataType をマッピング
+        }
+        return dispatcher[data_type](symbol=symbol, start_time=start_time, end_time=end_time, interval=interval, period=period)
+
+    # 各 _fetch_* メソッドで:
+    # 1. Bybit API を呼び出し (ページネーション含む)
+    # 2. Bybit 固有レスポンスを DataType.columns に準拠した DataFrame に変換
+    # 3. 空レスポンスは pd.DataFrame() を返す
+```
+
+### 重要: DataFrame の出力カラムは DataType.columns に完全一致させること
+
+例:
+- `DataType.OHLCV.columns` → `["timestamp", "open", "high", "low", "close", "volume", "close_time", "quote_volume", "trades", "taker_buy_volume", "taker_buy_quote_volume"]`
+- `DataType.FUNDING_RATE.columns` → `["timestamp", "symbol", "funding_rate", "mark_price"]`
+
+Bybit API が対応するフィールドを持たない場合は `None` / `0` / `NaN` で埋める。
 
 ---
 
@@ -76,7 +159,7 @@ Base URL: `https://api.bybit.com`
 {"retCode":0,"retMsg":"OK","result":{...},"time":...}
 ```
 
-- `_request` では `retCode` を検証し、`result` の中身だけを返すこと
+- `_http.get()` のレスポンスから `retCode` を検証し、`result` の中身だけを返すラッパーを用意
 - `retCode != 0` はエラー (RuntimeError)
 
 ### Kline系
@@ -94,16 +177,16 @@ result.list = [[startTime, open, high, low, close, volume, turnover], ...]
 
 interval パラメータ: 数値(分) = `1,3,5,15,30,60,120,240,360,720` または文字 = `D,W,M`
 
-→ export スクリプトでは以下の変換マッピングが必要:
+→ `_fetch_ohlcv` 内で以下の変換マッピングが必要:
 - `"1m"→"1"`, `"3m"→"3"`, `"5m"→"5"`, `"15m"→"15"`, `"30m"→"30"`
 - `"1h"→"60"`, `"2h"→"120"`, `"4h"→"240"`, `"6h"→"360"`, `"12h"→"720"`
 - `"1d"→"D"`, `"1w"→"W"`, `"1M"→"M"`
 
-| メソッド | エンドポイント | 固有パラメータ |
+| DataType | エンドポイント | 固有パラメータ |
 |---|---|---|
-| `get_klines` | `GET /v5/market/kline` | category, symbol, interval, start, end, limit |
-| `get_index_price_klines` | `GET /v5/market/index-price-kline` | 同上 |
-| `get_mark_price_klines` | `GET /v5/market/mark-price-kline` | 同上 |
+| `OHLCV` | `GET /v5/market/kline` | category, symbol, interval, start, end, limit |
+| `INDEX_PRICE` | `GET /v5/market/index-price-kline` | 同上 |
+| `MARK_PRICE` | `GET /v5/market/mark-price-kline` | 同上 |
 
 ### Funding Rate
 
@@ -119,6 +202,9 @@ result.list = [{"symbol","fundingRate","fundingRateTimestamp"}, ...]
 
 ページネーション: 最古の `fundingRateTimestamp - 1` を次の `endTime` に
 
+→ 出力: `DataType.FUNDING_RATE.columns` = `["timestamp", "symbol", "funding_rate", "mark_price"]`
+→ Bybit API に `mark_price` がない場合は `NaN` で埋める
+
 ### Open Interest
 
 ```
@@ -132,6 +218,9 @@ result.list = [{"openInterest","timestamp"}, ...]
 result.nextPageCursor → 次のリクエストの cursor パラメータに使用
 ```
 
+→ 出力: `DataType.OPEN_INTEREST.columns` = `["timestamp", "symbol", "open_interest", "open_interest_value"]`
+→ `open_interest_value` が API にない場合は `NaN` で埋める
+
 ### Long/Short Ratio
 
 ```
@@ -144,14 +233,9 @@ params: `category=linear, symbol, period(5min,15min,30min,1h,4h,1d), limit(最�
 result.list = [{"symbol","buyRatio","sellRatio","timestamp"}, ...]
 ```
 
-### スナップショット系
-
-| メソッド | エンドポイント |
-|---|---|
-| `get_tickers` | `GET /v5/market/tickers?category=linear` |
-| `get_instruments_info` | `GET /v5/market/instruments-info?category=linear` |
-| `get_orderbook` | `GET /v5/market/orderbook?category=linear&symbol=...&limit=...` |
-| `get_futures_symbols` | instruments-info から `status="Trading"` の USDT ペアを抽出 |
+→ 出力: `DataType.LONG_SHORT_RATIO.columns` = `["timestamp", "symbol", "long_short_ratio", "long_account", "short_account"]`
+→ `buyRatio` / `sellRatio` → `long_account` / `short_account` にマッピング
+→ `long_short_ratio` = `buyRatio / sellRatio` で計算
 
 ---
 
@@ -161,38 +245,59 @@ result.list = [{"symbol","buyRatio","sellRatio","timestamp"}, ...]
    → テストで dtype 検証する場合: `assert str(df["timestamp"].dtype).startswith("datetime64[")`
 
 2. **MagicMock** の `dir()` は未アクセスの属性を列挙しない
-   → テストでは `for attr in dir(mock)` ではなく、`mock.get_klines.return_value = ...` のように明示的に設定
+   → テストでは `mock._http.get.return_value = ...` のように明示的に設定
 
-3. 新パッケージ作成後は **`uv sync`** が必要 (setuptools がパッケージを再発見するため)
+3. 新しい infra モジュール追加後は **`uv sync`** が必要 (setuptools がパッケージを再発見)
 
-4. export スクリプトのテストで scripts/ を sys.path に追加する必要がある:
+4. **Bybit のレスポンスラッパー**: `_http.get()` の結果から `retCode` 検証 + `result` 抽出するヘルパーを `bybit.py` 内に定義
    ```python
-   sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+   def _api_get(self, url, params=None):
+       resp = self._http.get(url, params)
+       if resp.get("retCode") != 0:
+           raise RuntimeError(f"Bybit API error: {resp}")
+       return resp["result"]
    ```
+
+5. **降順→昇順ソート**: Kline 系は全て降順で返るので、ページネーション完了後に timestamp でソートすること
 
 ---
 
-## 設計ルール
+## テストパターン (test_binance_source.py に倣う)
 
-- 全データ取得メソッドは pandas DataFrame を返す
-- timestamp列: `pd.to_datetime(unit="ms", utc=True)`
-- float列: `.astype(float)`
-- 空レスポンス: 空の DataFrame を返す (`pd.DataFrame()`)
-- ページネーションは内部で自動的に全件取得
-- `to_milliseconds`: datetime, str(`'YYYY-MM-DD'` / `'YYYY-MM-DD HH:MM:SS'`), int(ms) を受付
-- Context manager 対応 (`__enter__`/`__exit__`)
-- export ファイル名: `yyyymmdd_hhmm_[symbol lower]_[interval]_[type].csv`
-- export 先: `data/bybit/`
-- テストは全て `unittest.mock` を使い、実 API を呼ばない
+```python
+# tests/test_bybit_source.py
+
+from market_data import DataType, create_source
+from market_data.infra.bybit import BybitFuturesSource
+
+class TestFactory:
+    def test_create_bybit_source(self):
+        source = create_source("bybit", rate_limit_sleep=0)
+        assert source.exchange == "bybit"
+
+class TestOhlcv:
+    def test_fetch_returns_canonical_columns(self):
+        source = BybitFuturesSource(rate_limit_sleep=0)
+        # Bybit kline レスポンスを mock
+        raw_response = {"retCode": 0, "retMsg": "OK", "result": {"list": [...]}}
+        with patch.object(source._http, "get", return_value=raw_response):
+            df = source.fetch(DataType.OHLCV, "BTCUSDT", "2024-01-01", "2024-01-02", interval="1h")
+        assert list(df.columns) == DataType.OHLCV.columns  # ← 正規カラムとの一致を検証
+```
+
+- 全 DataType について `list(df.columns) == DataType.*.columns` を検証すること
+- mock は `source._http.get` をパッチし、Bybit のレスポンス構造 (`retCode`/`result`) を再現
 
 ---
 
 ## 実行手順
 
-1. リファレンスファイルを全て読む
-2. `src/bybit_client/` パッケージを作成
-3. `scripts/export_bybit_data.py` を作成
-4. `tests/` を作成
-5. `uv sync` を実行
-6. `uv run pytest tests/test_bybit_client.py tests/test_export_bybit_data.py -v` で全テスト通過を確認
-7. git add → git commit → git push
+1. リファレンスファイルを全て読む (特に `binance.py` のパターンを熟読)
+2. `src/market_data/infra/bybit.py` を作成
+3. `src/market_data/__init__.py` の `_ensure_registry()` に Bybit を追加
+4. `tests/test_bybit_source.py` を作成
+5. `data/bybit/.gitkeep` を作成
+6. `uv sync` を実行
+7. `uv run pytest tests/test_bybit_source.py -v` で全テスト通過を確認
+8. 既存テストも壊れていないか確認: `uv run pytest -v`
+9. git add → git commit → git push
