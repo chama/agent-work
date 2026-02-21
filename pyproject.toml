@@ -11,4 +11,12 @@ dependencies = [
     "jupyter>=1.1.0",
     "matplotlib>=3.9.0",
     "xdk>=0.8.1",
+    "pytest>=8.0.0",
 ]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
