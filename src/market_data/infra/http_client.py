@@ -1,4 +1,9 @@
-"""Base HTTP client for Binance API with retry and rate limiting."""
+"""Reusable HTTP client with retry and rate limiting.
+
+This module provides a base HTTP client that can be shared across
+exchange adapters. It handles common concerns like retries, rate
+limiting, and session management.
+"""
 
 import logging
 import time
@@ -38,10 +43,8 @@ def to_milliseconds(dt) -> int:
     raise TypeError(f"Cannot convert {type(dt).__name__} to timestamp")
 
 
-class BinanceBaseClient:
-    """Base HTTP client with retry logic and rate limiting for Binance API."""
-
-    FUTURES_BASE_URL = "https://fapi.binance.com"
+class HttpClient:
+    """HTTP GET client with exponential-backoff retry and rate limiting."""
 
     def __init__(self, max_retries: int = 3, rate_limit_sleep: float = 0.1):
         self.session = requests.Session()
@@ -49,7 +52,7 @@ class BinanceBaseClient:
         self.max_retries = max_retries
         self.rate_limit_sleep = rate_limit_sleep
 
-    def _request(self, url: str, params: dict | None = None) -> list | dict:
+    def get(self, url: str, params: dict | None = None) -> list | dict:
         """Make GET request with retry and rate limiting.
 
         Raises RuntimeError on persistent failure or non-retryable errors.
@@ -69,7 +72,7 @@ class BinanceBaseClient:
                     continue
 
                 if resp.status_code == 418:
-                    raise RuntimeError(f"IP banned by Binance: {resp.text}")
+                    raise RuntimeError(f"IP banned: {resp.text}")
 
                 raise RuntimeError(
                     f"HTTP {resp.status_code}: {resp.text}"
