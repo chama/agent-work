@@ -191,8 +191,8 @@ def main():
 
     # 自分のユーザーIDを取得
     me = client.users.get_me()
-    user_id = me.data.id
-    print(f"ユーザー: {me.data.name} (@{me.data.username}), ID: {user_id}")
+    user_id = me.data["id"]
+    print(f"ユーザー: {me.data['name']} (@{me.data['username']}), ID: {user_id}")
 
     # 出力ディレクトリ作成
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
