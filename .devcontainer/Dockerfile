@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   zsh \
   man-db \
   unzip \
+  openssh-client \
   gnupg2 \
   curl \
   wget \
