@@ -64,6 +64,45 @@ while read -r cidr; do
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # Resolve and add other allowed domains
+# CDN-backed domains (CloudFront, Akamai, Cloudflare, Fastly, etc.) rotate IPs
+# frequently, so we add /24 subnets instead of individual IPs to handle rotation.
+resolve_and_add() {
+    local domain="$1"
+    echo "Resolving $domain..."
+
+    # Detect if domain is behind a CDN via CNAME
+    local cname
+    cname=$(dig +noall +answer CNAME "$domain" | awk '$4 == "CNAME" {print $5}' | head -1)
+    local is_cdn=false
+    if echo "$cname" | grep -qiE '(cloudfront\.net|akamai|cloudflare|fastly|edgekey\.net|azureedge\.net)'; then
+        is_cdn=true
+        echo "  CDN detected ($cname) - using /24 subnets"
+    fi
+
+    local ips
+    ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
+    if [ -z "$ips" ]; then
+        echo "WARNING: Failed to resolve $domain (skipping)"
+        return
+    fi
+
+    while read -r ip; do
+        if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "ERROR: Invalid IP from DNS for $domain: $ip"
+            exit 1
+        fi
+        if [ "$is_cdn" = true ]; then
+            local subnet
+            subnet=$(echo "$ip" | sed 's/\.[0-9]*$/.0\/24/')
+            echo "  Adding $subnet for $domain"
+            ipset add allowed-domains "$subnet" 2>/dev/null || true
+        else
+            echo "  Adding $ip for $domain"
+            ipset add allowed-domains "$ip" 2>/dev/null || true
+        fi
+    done < <(echo "$ips")
+}
+
 for domain in \
     "api.anthropic.com" \
     "sentry.io" \
@@ -89,21 +128,7 @@ for domain in \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com"; do
-    echo "Resolving $domain..."
-    ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
-    if [ -z "$ips" ]; then
-        echo "WARNING: Failed to resolve $domain (skipping)"
-        continue
-    fi
-
-    while read -r ip; do
-        if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "ERROR: Invalid IP from DNS for $domain: $ip"
-            exit 1
-        fi
-        echo "Adding $ip for $domain"
-        ipset add allowed-domains "$ip" 2>/dev/null || true
-    done < <(echo "$ips")
+    resolve_and_add "$domain"
 done
 
 # Get host IP from default route
