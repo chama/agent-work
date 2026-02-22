@@ -32,6 +32,10 @@ data/*.csv
 data/*.db
 data/*.duckdb
 
+# Analyses
+analyses/01_x_bookmarks/*
+!analyses/01_x_bookmarks/.gitkeep
+
 # Jupyter
 .ipynb_checkpoints/
 

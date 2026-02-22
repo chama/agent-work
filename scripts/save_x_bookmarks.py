@@ -16,7 +16,7 @@ from pathlib import Path
 from xdk import Client
 
 
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "x"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "analyses" / "01_x_bookmarks"
 
 # X API v2 で取得可能な全フィールド
 TWEET_FIELDS = [

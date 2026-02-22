@@ -12,6 +12,7 @@ dependencies = [
     "matplotlib>=3.9.0",
     "xdk>=0.8.1",
     "pytest>=8.0.0",
+    "pydantic>=2.12.5",
 ]
 
 [build-system]
