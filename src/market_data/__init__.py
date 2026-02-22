@@ -19,10 +19,12 @@ def _ensure_registry() -> None:
         return
     from .infra.binance import BinanceFuturesSource
     from .infra.bybit import BybitFuturesSource
+    from .infra.kraken import KrakenFuturesSource
     from .infra.phemex import PhemexFuturesSource
 
     _REGISTRY["binance"] = BinanceFuturesSource
     _REGISTRY["bybit"] = BybitFuturesSource
+    _REGISTRY["kraken"] = KrakenFuturesSource
     _REGISTRY["phemex"] = PhemexFuturesSource
 
 
