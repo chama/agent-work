@@ -18,10 +18,14 @@ def _ensure_registry() -> None:
     if _REGISTRY:
         return
     from .infra.binance import BinanceFuturesSource
+    from .infra.bybit import BybitFuturesSource
     from .infra.kraken import KrakenFuturesSource
+    from .infra.phemex import PhemexFuturesSource
 
     _REGISTRY["binance"] = BinanceFuturesSource
+    _REGISTRY["bybit"] = BybitFuturesSource
     _REGISTRY["kraken"] = KrakenFuturesSource
+    _REGISTRY["phemex"] = PhemexFuturesSource
 
 
 def create_source(exchange: str, **kwargs) -> FuturesDataSource:
